@@ -34,13 +34,40 @@ class UnbufferedVideoCapture:
 
     def read(self):
         return self.q.get()
+    
+    def release(self):
+        self.cap.release()
+
+class TagCollector:
+    def __init__(self, missing_threshold=5):
+        self.tags = {}
+        self.missing_threshold = missing_threshold
+
+    def update_tags(self, tag_ids):
+        found_tags = []
+        lost_tags = []
+        for tag_id in tag_ids:
+            if tag_id not in self.tags:
+                self.tags[tag_id] = 0
+                found_tags.append(tag_id)
+        for tag_id in list(self.tags.keys()):
+            if self.tags[tag_id] != 0:
+                tag_tracker[tag_id] += 1
+                if tag_tracker[tag_id] >= self.missing_threshold:
+                    lost_tags.append(tag_id)
+                    del tag_tracker[tag_id]
+        return found_tags, lost_tags
+    
+    def get_tags(self):
+        return self.tags.keys()
+
 
 def main(rtsp_url, tag_family='tag36h11', missing_threshold=5):
     cap = UnbufferedVideoCapture(rtsp_url, cv2.CAP_FFMPEG)
 
     frame = cap.read()
     #Map of tag_id to frames-since-last-seen count
-    tag_tracker = {}
+    tag_tracker = TagCollector(missing_threshold)
     detector = Detector(
         families=tag_family,
         nthreads=1,
@@ -50,36 +77,37 @@ def main(rtsp_url, tag_family='tag36h11', missing_threshold=5):
         decode_sharpening=0.25,
         debug=0)
 
-    while True:
-        if (cv2.waitKey(1) & 0xFF == ord('q')):
-            break
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        results = detector.detect(gray)
+    try:
+        while True:
+            if (cv2.waitKey(1) & 0xFF == ord('q')):
+                raise KeyboardInterrupt
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            results = detector.detect(gray)
 
-        # Report newly detected tags and reset/add their counters
-        for tag in results:
-            if tag.tag_id not in tag_tracker:
-                print(f"Found AprilTag ID: {tag.tag_id}")
-            tag_tracker[tag.tag_id] = 0
-            for idx in range(len(tag.corners)):
-                cv2.line(frame, tuple(tag.corners[idx-1, :].astype(int)), tuple(tag.corners[idx, :].astype(int)), (0, 255, 0))
+            # Report newly detected tags and reset/add their counters
+            seen, lost = tag_tracker.update_tags([tag.tag_id for tag in results])
+            for tag in seen:
+                print(f"Found AprilTag ID: {tag}")
+            for tag in lost:
+                print(f"AprilTag ID {tag} is no longer visible")
+            
+            for tag in results:
+                for idx in range(len(tag.corners)):
+                    cv2.line(frame, tuple(tag.corners[idx-1, :].astype(int)), tuple(tag.corners[idx, :].astype(int)), (0, 255, 0))
 
-            cv2.putText(frame, str(tag.tag_id),
-                org=(tag.corners[0, 0].astype(int)+10,tag.corners[0, 1].astype(int)+10),
-                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                fontScale=0.8,
-                color=(0, 0, 255))
-        cv2.imshow('frame', frame)
+                cv2.putText(frame, str(tag.tag_id),
+                    org=(tag.corners[0, 0].astype(int)+10,tag.corners[0, 1].astype(int)+10),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.8,
+                    color=(0, 0, 255))
 
-        # Update all tag counters and remove stale ones
-        for tag_id in list(tag_tracker.keys()):
-            if tag_tracker[tag_id] != 0:
-                tag_tracker[tag_id] += 1
-                if tag_tracker[tag_id] >= missing_threshold:
-                    print(f"AprilTag ID {tag_id} is no longer visible")
-                    del tag_tracker[tag_id]
-        frame = cap.read()
-    cv2.destroyAllWindows()
+            cv2.imshow('frame', frame)
+            frame = cap.read()
+    except KeyboardInterrupt:
+        print("Program terminated by user.")
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     import argparse
