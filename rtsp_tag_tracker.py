@@ -33,12 +33,12 @@ class UnbufferedVideoCapture:
             self.q.put(frame)
 
     def read(self):
-        return (True, self.q.get())
+        return self.q.get()
 
 def main(rtsp_url, tag_family='tag36h11', missing_threshold=5):
     cap = UnbufferedVideoCapture(rtsp_url, cv2.CAP_FFMPEG)
 
-    ret, frame = cap.read()
+    frame = cap.read()
     #Map of tag_id to frames-since-last-seen count
     tag_tracker = {}
     detector = Detector(
@@ -50,7 +50,7 @@ def main(rtsp_url, tag_family='tag36h11', missing_threshold=5):
         decode_sharpening=0.25,
         debug=0)
 
-    while ret:
+    while True:
         if (cv2.waitKey(1) & 0xFF == ord('q')):
             break
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -78,7 +78,7 @@ def main(rtsp_url, tag_family='tag36h11', missing_threshold=5):
                 if tag_tracker[tag_id] >= missing_threshold:
                     print(f"AprilTag ID {tag_id} is no longer visible")
                     del tag_tracker[tag_id]
-        ret, frame = cap.read()
+        frame = cap.read()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
