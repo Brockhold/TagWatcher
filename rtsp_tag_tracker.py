@@ -49,7 +49,7 @@ def main(rtsp_url, tag_family='tag36h11', missing_threshold=5):
 
         # Update all tag counters and remove stale ones
         for tag_id in list(tag_tracker.keys()):
-            if tag_tracker[tag_id] is not 0:
+            if tag_tracker[tag_id] != 0:
                 tag_tracker[tag_id] += 1
                 if tag_tracker[tag_id] >= missing_threshold:
                     print(f"AprilTag ID {tag_id} is no longer visible")
